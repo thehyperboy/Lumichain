@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\""
+    "test": "node tests/blockchainService.test.js"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +16,7 @@
     "axios": "^1.20.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",
+    "ethers": "^6.17.0",
     "express": "^5.2.1",
     "ws": "^8.22.0"
   },
