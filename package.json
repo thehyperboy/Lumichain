@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "description": "LumiChain — Decentralized Smart Streetlight Infrastructure & Civic Governance Platform",
   "workspaces": [
-    "lumichain-frontend"
+    "lumichain-frontend",
+    "backend"
   ],
   "scripts": {
     "dev": "npm --prefix lumichain-frontend run dev",
