@@ -1,0 +1,15 @@
+{
+  "name": "lumichain",
+  "private": true,
+  "version": "1.0.0",
+  "description": "LumiChain — Decentralized Smart Streetlight Infrastructure & Civic Governance Platform",
+  "workspaces": [
+    "lumichain-frontend"
+  ],
+  "scripts": {
+    "dev": "npm --prefix lumichain-frontend run dev",
+    "build": "npm --prefix lumichain-frontend run build",
+    "lint": "npm --prefix lumichain-frontend run lint",
+    "preview": "npm --prefix lumichain-frontend run preview"
+  }
+}
