@@ -1,13 +1,20 @@
+const dns = require("node:dns");
+if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder("ipv4first");
+}
+
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 
 const { checkSupabaseConnection } = require("./config/supabase");
 const { checkAiServiceHealth } = require("./services/aiService");
+const { checkBlockchainConnection } = require("./services/blockchainService");
 
 const streetlightRoutes = require("./routes/streetlightRoutes");
 const telemetryRoutes = require("./routes/telemetryRoutes");
 const ticketRoutes = require("./routes/ticketRoutes");
+const blockchainRoutes = require("./routes/blockchainRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,6 +37,12 @@ app.get("/health", async (req, res) => {
     }
 
     const aiStatus = await checkAiServiceHealth();
+    let blockchainStatus = { connected: false, error: "not checked" };
+    try {
+        blockchainStatus = await checkBlockchainConnection();
+    } catch (e) {
+        blockchainStatus = { connected: false, error: e.message };
+    }
 
     res.status(200).json({
         status: "healthy",
@@ -42,6 +55,12 @@ app.get("/health", async (req, res) => {
             url: process.env.AI_SERVICE_URL || "http://127.0.0.1:8000",
             status: aiStatus.online ? "online" : "offline",
             details: aiStatus.data || aiStatus.error,
+        },
+        blockchain: {
+            contractAddress: process.env.BLOCKCHAIN_CONTRACT_ADDRESS || "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+            rpcUrl: process.env.BLOCKCHAIN_RPC_URL || "http://127.0.0.1:8545",
+            status: blockchainStatus.connected ? "connected" : "offline",
+            details: blockchainStatus,
         },
         version: "2.0.0",
         timestamp: new Date().toISOString(),
@@ -58,6 +77,7 @@ app.get("/", (req, res) => {
             streetlights: "/api/streetlights",
             telemetry: "/api/telemetry",
             tickets: "/api/tickets",
+            blockchain: "/api/blockchain",
         },
     });
 });
@@ -66,6 +86,7 @@ app.get("/", (req, res) => {
 app.use("/api/streetlights", streetlightRoutes);
 app.use("/api/telemetry", telemetryRoutes);
 app.use("/api/tickets", ticketRoutes);
+app.use("/api/blockchain", blockchainRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
