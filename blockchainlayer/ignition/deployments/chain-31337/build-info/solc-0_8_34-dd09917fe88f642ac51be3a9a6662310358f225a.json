@@ -1,0 +1,49 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_34-dd09917fe88f642ac51be3a9a6662310358f225a",
+  "solcVersion": "0.8.34",
+  "solcLongVersion": "0.8.34+commit.80d5c536",
+  "compilerType": "solc",
+  "toolVersions": {
+    "hardhat": "3.18.1"
+  },
+  "userSourceNameMap": {
+    "contracts/LumiChainAudit.sol": "project/contracts/LumiChainAudit.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "osaka",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode.linkReferences",
+            "evm.bytecode.object",
+            "evm.bytecode.opcodes",
+            "evm.bytecode.sourceMap",
+            "evm.deployedBytecode.immutableReferences",
+            "evm.deployedBytecode.linkReferences",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.opcodes",
+            "evm.deployedBytecode.sourceMap",
+            "evm.methodIdentifiers"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/LumiChainAudit.sol": {
+        "content": "// SPDX-License-Identifier: MIT\r\npragma solidity ^0.8.34;\r\n\r\ncontract LumiChainAudit {\r\n    address public owner;\r\n\r\n    struct AuditRecord {\r\n        string complaintId;\r\n        string poleId;\r\n        string eventType;\r\n        string dataHash;\r\n        string status;\r\n        uint256 timestamp;\r\n        address recordedBy;\r\n    }\r\n\r\n    mapping(bytes32 => AuditRecord) private auditRecords;\r\n\r\n    event AuditEventRecorded(\r\n        bytes32 indexed recordId,\r\n        string complaintId,\r\n        string poleId,\r\n        string eventType,\r\n        string status,\r\n        uint256 timestamp,\r\n        address recordedBy\r\n    );\r\n\r\n    modifier onlyOwner() {\r\n        require(msg.sender == owner, \"Only owner can perform this action\");\r\n        _;\r\n    }\r\n\r\n    constructor() {\r\n        owner = msg.sender;\r\n    }\r\n\r\n    function recordEvent(\r\n        string memory complaintId,\r\n        string memory poleId,\r\n        string memory eventType,\r\n        string memory dataHash,\r\n        string memory status\r\n    ) public onlyOwner returns (bytes32) {\r\n        require(bytes(complaintId).length > 0, \"Complaint ID required\");\r\n        require(bytes(poleId).length > 0, \"Pole ID required\");\r\n        require(bytes(eventType).length > 0, \"Event type required\");\r\n\r\n        bytes32 recordId = keccak256(\r\n            abi.encodePacked(\r\n                complaintId,\r\n                poleId,\r\n                eventType,\r\n                block.timestamp,\r\n                msg.sender\r\n            )\r\n        );\r\n\r\n        auditRecords[recordId] = AuditRecord({\r\n            complaintId: complaintId,\r\n            poleId: poleId,\r\n            eventType: eventType,\r\n            dataHash: dataHash,\r\n            status: status,\r\n            timestamp: block.timestamp,\r\n            recordedBy: msg.sender\r\n        });\r\n\r\n        emit AuditEventRecorded(\r\n            recordId,\r\n            complaintId,\r\n            poleId,\r\n            eventType,\r\n            status,\r\n            block.timestamp,\r\n            msg.sender\r\n        );\r\n\r\n        return recordId;\r\n    }\r\n\r\n    function getAuditRecord(\r\n        bytes32 recordId\r\n    )\r\n        public\r\n        view\r\n        returns (\r\n            string memory complaintId,\r\n            string memory poleId,\r\n            string memory eventType,\r\n            string memory dataHash,\r\n            string memory status,\r\n            uint256 timestamp,\r\n            address recordedBy\r\n        )\r\n    {\r\n        AuditRecord memory record = auditRecords[recordId];\r\n\r\n        return (\r\n            record.complaintId,\r\n            record.poleId,\r\n            record.eventType,\r\n            record.dataHash,\r\n            record.status,\r\n            record.timestamp,\r\n            record.recordedBy\r\n        );\r\n    }\r\n\r\n    function transferOwnership(address newOwner) public onlyOwner {\r\n        require(newOwner != address(0), \"Invalid owner address\");\r\n        owner = newOwner;\r\n    }\r\n}"
+      }
+    }
+  }
+}

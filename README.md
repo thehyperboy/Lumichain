@@ -21,7 +21,10 @@ Lumichain/
 │
 └── backend/                # Node.js & Express REST Backend
     ├── src/
-    │   ├── config/         # MongoDB Atlas database configuration
+    │   ├── config/         # Supabase PostgreSQL database configuration
+    │   ├── controllers/    # Route controllers (streetlights, telemetry, tickets)
+    │   ├── routes/         # Express API routes
+    │   ├── services/       # Business logic & AI/Supabase service clients
     │   └── server.js       # Express server initialization
     ├── .env.example        # Environment variable template
     └── package.json        # Node dependencies & npm scripts
@@ -36,7 +39,7 @@ The AI service uses a tuned Decision Tree classifier combined with a determinist
 ```bash
 cd ai-service
 
-# Create & activate virtual environment
+# Create & activate virtual environment (optional)
 python -m venv venv
 venv\Scripts\activate   # On Windows
 # source venv/bin/activate # On Linux/macOS
@@ -55,9 +58,9 @@ uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 
 ---
 
-## 2. Backend Setup (Node.js & MongoDB)
+## 2. Backend Setup (Node.js & Supabase)
 
-The Node.js backend connects to MongoDB Atlas and coordinates data exchange between streetlights, the database, and the AI Layer.
+The Node.js backend connects to Supabase PostgreSQL and coordinates data exchange between streetlights, the database, and the AI Layer.
 
 ```bash
 cd backend
@@ -67,7 +70,7 @@ npm install
 
 # Configure environment variables
 cp .env.example .env
-# Update .env with your MongoDB Atlas URI
+# Update .env with your Supabase URL & Anon Key
 
 # Start development server
 npm run dev
