@@ -246,10 +246,46 @@ async function getMaintenanceRecord(recordId) {
   }
 }
 
+/**
+ * Retrieves all emitted AuditEventRecorded events from the smart contract.
+ *
+ * @param {number} limit - Maximum number of recent events to return
+ * @returns {Promise<Array<Object>>} List of on-chain audit records
+ */
+async function getAuditEvents(limit = 50) {
+  try {
+    const provider = getProvider();
+    const contract = getContract(provider);
+    const filter = contract.filters.AuditEventRecorded();
+    const logs = await contract.queryFilter(filter, 0, "latest");
+
+    const events = logs
+      .map((log) => ({
+        recordId: log.args.recordId,
+        complaintId: log.args.complaintId,
+        poleId: log.args.poleId,
+        eventType: log.args.eventType,
+        status: log.args.status,
+        timestamp: Number(log.args.timestamp) * 1000,
+        recordedBy: log.args.recordedBy,
+        transactionHash: log.transactionHash,
+        blockNumber: log.blockNumber,
+      }))
+      .reverse()
+      .slice(0, limit);
+
+    return events;
+  } catch (error) {
+    console.warn("[BlockchainService] Error fetching audit events:", error.message);
+    return [];
+  }
+}
+
 module.exports = {
   checkBlockchainConnection,
   recordMaintenanceEvent,
   getMaintenanceRecord,
+  getAuditEvents,
   getProvider,
   getSigner,
   getContract

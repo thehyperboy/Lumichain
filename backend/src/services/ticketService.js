@@ -1,4 +1,6 @@
+const crypto = require("crypto");
 const { supabase } = require("../config/supabase");
+const { recordMaintenanceEvent } = require("./blockchainService");
 
 /**
  * Creates a maintenance complaint/ticket in Supabase.
@@ -108,6 +110,39 @@ const updateTicketStatus = async (idOrNumber, newStatus) => {
     if (error) {
         throw new Error(`Failed to update ticket ${idOrNumber}: ${error.message}`);
     }
+
+    // Automatically restore streetlight to WORKING when ticket is resolved
+    if (data?.pole_id && (newStatus === "RESOLVED" || newStatus === "CLOSED")) {
+        try {
+            await supabase
+                .from("streetlights")
+                .update({ status: "WORKING", updated_at: new Date().toISOString() })
+                .eq("pole_id", data.pole_id);
+        } catch (slErr) {
+            console.warn(`[Streetlight] Failed to restore pole status: ${slErr.message}`);
+        }
+
+        // Anchor repair resolution on smart contract
+        try {
+            const repairHash = "0x" + crypto
+                .createHash("sha256")
+                .update(JSON.stringify({ ticketId: data.id, poleId: data.pole_id, status: newStatus, resolvedAt: updates.resolved_at }))
+                .digest("hex");
+
+            const bcReceipt = await recordMaintenanceEvent({
+                complaintId: data.ticket_number || data.id,
+                poleId: data.pole_id,
+                eventType: "REPAIR_VERIFIED",
+                dataHash: repairHash,
+                status: "RESOLVED",
+            });
+            console.log(`[Blockchain] Auto-anchored REPAIR_VERIFIED for ${data.pole_id} (Tx: ${bcReceipt.transactionHash})`);
+            data.blockchainAudit = bcReceipt;
+        } catch (bcErr) {
+            console.warn(`[Blockchain] Auto-anchor repair failed: ${bcErr.message}`);
+        }
+    }
+
     return data;
 };
 

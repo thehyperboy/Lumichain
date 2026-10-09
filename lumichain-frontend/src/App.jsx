@@ -28,10 +28,12 @@ import {
   getTelemetryHistory, 
   postTelemetry, 
   getTickets, 
-  updateTicketStatus,
-  createTicket,
-  getBlockchainStatus,
-  recordBlockchainEvent
+  updateTicketStatus, 
+  createTicket, 
+  getBlockchainStatus, 
+  recordBlockchainEvent,
+  getBlockchainEvents,
+  verifyBlockchainRecord
 } from './services/apiService';
 
 export default function App() {
@@ -45,6 +47,9 @@ export default function App() {
   const [telemetryHistory, setTelemetryHistory] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [blockchainInfo, setBlockchainInfo] = useState(null);
+  const [blockchainEvents, setBlockchainEvents] = useState([]);
+  const [verifiedRecord, setVerifiedRecord] = useState(null);
+  const [verifyingId, setVerifyingId] = useState(null);
 
   // Status & Loaders
   const [loading, setLoading] = useState(true);
@@ -113,6 +118,16 @@ export default function App() {
         }
       } catch {
         // Blockchain RPC may be offline in dev
+      }
+
+      // 5. Smart Contract Events
+      try {
+        const eventsRes = await getBlockchainEvents(30);
+        if (eventsRes?.data) {
+          setBlockchainEvents(eventsRes.data);
+        }
+      } catch (err) {
+        console.warn('Error fetching blockchain events:', err);
       }
     } catch (globalErr) {
       console.error('Data load failure:', globalErr);
@@ -209,17 +224,32 @@ export default function App() {
           temperature: 42.1,
           neighborConfirmation: 1,
         };
+      } else if (scenarioType === 'POWER_FAILURE') {
+        payload = {
+          ...payload,
+          current: 0.0,
+          voltage: 2.1,
+          lightIntensity: 0,
+          temperature: 29.0,
+          neighborConfirmation: 2,
+        };
       }
 
       const res = await postTelemetry(payload);
       if (res?.success) {
         const ai = res.data?.aiDecision;
-        const msg = ai?.failureDetected 
-          ? `Fault detected: ${ai.failureType} (${Math.round((ai.confidence || 1) * 100)}% conf). Maintenance ticket synced!`
-          : `Pole restored: Healthy operation verified by AI engine.`;
+        const bc = res.data?.blockchainAudit;
+        let msg = '';
+        if (bc) {
+          msg = `AI Fault [${ai?.failureType}] verified (${Math.round((ai?.confidence || 1) * 100)}% conf). Auto-anchored on blockchain (Tx: ${bc.transactionHash.slice(0, 10)}..., Block #${bc.blockNumber})!`;
+        } else if (ai?.failureDetected) {
+          msg = `Fault detected: ${ai.failureType} (${Math.round((ai.confidence || 1) * 100)}% conf). Maintenance ticket synced!`;
+        } else {
+          msg = `Pole restored: Healthy operation verified by AI engine.`;
+        }
         notify(msg, ai?.failureDetected ? 'danger' : 'success');
         
-        // Refresh pole & tickets from database
+        // Refresh pole, tickets & blockchain from database & chain
         await loadSystemData(false);
         await loadPoleTelemetry(selectedPoleId);
       }
@@ -235,7 +265,13 @@ export default function App() {
     try {
       const res = await updateTicketStatus(ticketId, nextStatus);
       if (res?.success) {
-        notify(`Ticket ${ticketId.slice(0, 8)} status updated to ${nextStatus}`, 'success');
+        if (nextStatus === 'RESOLVED') {
+          const bc = res.data?.blockchainAudit;
+          const bcMsg = bc ? ` • Anchored on smart contract (Tx: ${bc.transactionHash.slice(0, 10)}...)` : '';
+          notify(`Ticket resolved! Pole restored to WORKING in database${bcMsg}`, 'success');
+        } else {
+          notify(`Ticket ${ticketId.slice(0, 8)} status updated to ${nextStatus}`, 'success');
+        }
         await loadSystemData(false);
       }
     } catch (err) {
@@ -277,12 +313,30 @@ export default function App() {
         status: ticket.priority || 'NORMAL'
       });
       if (res?.success) {
-        notify(`Event anchored on-chain! Tx: ${res.data.transactionHash.slice(0, 10)}...`, 'success');
+        notify(`Event anchored on-chain! Tx: ${res.data.transactionHash.slice(0, 10)}... (Block #${res.data.blockNumber})`, 'success');
+        await loadSystemData(false);
       }
     } catch (err) {
-      notify(`Blockchain RPC offline (${err.message}). Cryptographic hash local audit updated.`, 'info');
+      notify(`Blockchain error: ${err.message}`, 'danger');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleVerifyRecord = async (recordId) => {
+    setVerifyingId(recordId);
+    try {
+      const res = await verifyBlockchainRecord(recordId);
+      if (res?.success && res.data) {
+        setVerifiedRecord({ recordId, ...res.data });
+        notify(`Smart contract verification SUCCESS: Record confirmed on-chain!`, 'success');
+      } else {
+        notify('Verification failed: Record not found on contract.', 'danger');
+      }
+    } catch (err) {
+      notify(`Smart contract verification error: ${err.message}`, 'danger');
+    } finally {
+      setVerifyingId(null);
     }
   };
 
@@ -512,15 +566,15 @@ export default function App() {
                     onClick={() => handleIngestTelemetry('HEALTHY')}
                     title="Send normal 0.45A telemetry to restore pole"
                   >
-                    <CheckCircle2 size={14} /> Send Normal (0.45A)
+                    <CheckCircle2 size={14} /> Normal (0.45A)
                   </button>
                   <button 
                     className="action-btn danger btn-sm"
                     disabled={actionLoading}
                     onClick={() => handleIngestTelemetry('LAMP_FAILURE')}
-                    title="Send low current 0.01A failure telemetry"
+                    title="Send low current 0.01A lamp fault telemetry"
                   >
-                    <AlertTriangle size={14} /> Simulate Fault (0.01A)
+                    <AlertTriangle size={14} /> Lamp Fault (0.01A)
                   </button>
                   <button 
                     className="action-btn secondary btn-sm"
@@ -528,7 +582,15 @@ export default function App() {
                     onClick={() => handleIngestTelemetry('VOLTAGE_SURGE')}
                     title="Send high voltage 268V surge"
                   >
-                    Surge (268V)
+                    <Zap size={14} /> Surge (268V)
+                  </button>
+                  <button 
+                    className="action-btn danger btn-sm"
+                    disabled={actionLoading}
+                    onClick={() => handleIngestTelemetry('POWER_FAILURE')}
+                    title="Send critical power grid loss (2.1V)"
+                  >
+                    <AlertOctagon size={14} /> Blackout (2.1V)
                   </button>
                 </div>
               </div>
@@ -735,36 +797,58 @@ export default function App() {
 
               {isTampered ? (
                 <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--danger)', borderRadius: '8px', color: 'var(--danger)', marginTop: '0.5rem' }}>
-                  <strong>❌ HASH MISMATCH DETECTED</strong>
+                  <strong>❌ CRYPTOGRAPHIC HASH TAMPER DETECTED</strong>
                   <p style={{ fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                    Maintenance record for {selectedPole.pole_id} has been modified after on-chain anchoring! Root hash differs from block state.
+                    Local database record for pole {selectedPole.pole_id} was modified post-anchoring! The smart contract at <code>{blockchainInfo?.contractAddress || '0x5FbDB2315678afecb367f032d93F642f64180aa3'}</code> rejects the modified hash state.
                   </p>
                 </div>
               ) : (
                 <div className="audit-timeline">
-                  <div className="audit-item fade-in">
-                    <div className="audit-icon" style={{ background: 'var(--danger)' }}><AlertTriangle size={12} color="white" /></div>
-                    <div className="audit-content">
-                      <strong>AI FAULT ANCHORED</strong> <span className="audit-time">Block #310 • Node {selectedPole.pole_id}</span><br />
-                      <span className="hash-link">Hash: 0x8f19b4e72c842b1095d36e2f9104a37651c6b12a</span>
+                  {blockchainEvents.length > 0 ? (
+                    blockchainEvents.slice(0, 3).map((evt) => (
+                      <div key={evt.recordId || evt.transactionHash} className="audit-item fade-in">
+                        <div 
+                          className="audit-icon" 
+                          style={{ 
+                            background: evt.eventType === 'AI_FAULT_DETECTED' 
+                              ? 'var(--danger)' 
+                              : evt.eventType === 'REPAIR_VERIFIED' 
+                                ? 'var(--success)' 
+                                : '#a855f7' 
+                          }}
+                        >
+                          <ShieldCheck size={12} color="white" />
+                        </div>
+                        <div className="audit-content">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <strong>{evt.eventType} — {evt.poleId}</strong>
+                            <span className="audit-time">Block #{evt.blockNumber} • {new Date(evt.timestamp).toLocaleTimeString()}</span>
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.2rem 0' }}>
+                            Ticket: {evt.complaintId} • Status: {evt.status}
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                            <span className="hash-link">Tx: {evt.transactionHash?.slice(0, 22)}...</span>
+                            <button 
+                              className="action-btn secondary btn-xs"
+                              disabled={verifyingId === evt.recordId}
+                              onClick={() => handleVerifyRecord(evt.recordId)}
+                            >
+                              {verifyingId === evt.recordId ? 'Verifying...' : 'Verify On-Chain'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="audit-item fade-in">
+                      <div className="audit-icon" style={{ background: 'var(--success)' }}><CheckCircle2 size={12} color="white" /></div>
+                      <div className="audit-content">
+                        <strong>SMART CONTRACT AUDIT LOG</strong> <span className="audit-time">Contract: {blockchainInfo?.contractAddress || '0x5FbDB2315678afecb367f032d93F642f64180aa3'}</span><br />
+                        <span className="hash-link">State: Verified Immutable • Ledger: LumiChainAudit.sol</span>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="audit-item fade-in">
-                    <div className="audit-icon" style={{ background: '#a855f7' }}><Cpu size={12} color="white" /></div>
-                    <div className="audit-content">
-                      <strong>NEIGHBOR CONSENSUS VERIFIED</strong> <span className="audit-time">Block #311 • 2 Peers</span><br />
-                      <span className="hash-link">Hash: 0x4a923ec1702fbd610b7194f836104bcde109923e</span>
-                    </div>
-                  </div>
-
-                  <div className="audit-item fade-in">
-                    <div className="audit-icon" style={{ background: 'var(--success)' }}><CheckCircle2 size={12} color="white" /></div>
-                    <div className="audit-content">
-                      <strong>SMART CONTRACT AUDIT LOG</strong> <span className="audit-time">Contract: {blockchainInfo?.contractAddress || '0x5FbDB2315678afecb367f032d93F642f64180aa3'}</span><br />
-                      <span className="hash-link">State: Verified Immutable • Ledger: LumiChainAudit.sol</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -941,31 +1025,108 @@ export default function App() {
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1.5rem', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '1.5rem' }}>
                 <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>LumiChain Civic Governance Protocol</h3>
                 <p style={{ fontSize: '0.875rem', color: '#94a3b8', lineHeight: 1.6 }}>
-                  Every maintenance event, AI fault diagnosis, and technician restoration is cryptographically anchored.
-                  Contract audits ensure municipality transparency and prevent unauthorized alteration of civic infrastructure records.
+                  Every maintenance event, AI fault diagnosis, and technician restoration is cryptographically anchored to the Ethereum EVM.
+                  Contract audits ensure municipality transparency, algorithmic accountability, and immutable civic infrastructure proof.
                 </p>
+                <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem', fontSize: '0.85rem' }}>
+                  <div><strong>Total Mined Events:</strong> <span style={{ color: 'var(--primary)' }}>{blockchainEvents.length}</span></div>
+                  <div><strong>Chain ID:</strong> <span>{blockchainInfo?.chainId || 31337}</span></div>
+                  <div><strong>Deployer Signer:</strong> <span title={blockchainInfo?.contractOwner}>{blockchainInfo?.contractOwner?.slice(0, 10)}...</span></div>
+                </div>
               </div>
 
-              <div className="audit-timeline">
-                {tickets.slice(0, 5).map((t, idx) => (
-                  <div key={t.id} className="audit-item fade-in">
-                    <div className="audit-icon" style={{ background: t.status === 'RESOLVED' ? 'var(--success)' : 'var(--primary)' }}>
-                      <ShieldCheck size={14} color="white" />
+              {/* On-Chain Verified Proof Card */}
+              {verifiedRecord && (
+                <div style={{ background: 'rgba(34, 197, 94, 0.1)', border: '1px solid var(--success)', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem' }} className="fade-in">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--success)', fontWeight: 700 }}>
+                      <CheckCircle2 size={18} /> SMART CONTRACT PROOF VERIFIED ON-CHAIN
                     </div>
-                    <div className="audit-content">
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <strong>{t.failure_type} — {t.pole_id}</strong>
-                        <span className="audit-time">{new Date(t.created_at).toLocaleString()}</span>
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.25rem 0' }}>
-                        Ticket ID: {t.ticket_number || t.id} • Status: {t.status}
-                      </div>
-                      <span className="hash-link">
-                        Root Hash: 0x{t.id.replace(/-/g, '').padEnd(40, 'a')}
-                      </span>
+                    <button 
+                      onClick={() => setVerifiedRecord(null)}
+                      style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.9rem' }}
+                    >
+                      ✕ Close
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', fontSize: '0.85rem', marginTop: '0.75rem' }}>
+                    <div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>COMPLAINT / TICKET</div>
+                      <strong>{verifiedRecord.complaintId}</strong>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>POLE ID</div>
+                      <strong>{verifiedRecord.poleId}</strong>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>EVENT TYPE</div>
+                      <span className="badge normal">{verifiedRecord.eventType}</span>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>MINED AT (UNIX)</div>
+                      <span>{new Date(verifiedRecord.timestamp * 1000).toLocaleString()}</span>
                     </div>
                   </div>
-                ))}
+                  <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#94a3b8', wordBreak: 'break-all' }}>
+                    <strong>Recorded By:</strong> {verifiedRecord.recordedBy} • <strong>Data Hash:</strong> {verifiedRecord.dataHash}
+                  </div>
+                </div>
+              )}
+
+              {/* Live Smart Contract Audit Events Table */}
+              <div className="table-responsive" style={{ marginTop: '1rem' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Event Type</th>
+                      <th>Pole</th>
+                      <th>Ticket ID</th>
+                      <th>Block #</th>
+                      <th>Status</th>
+                      <th>Transaction Hash</th>
+                      <th>Timestamp</th>
+                      <th>On-Chain Proof</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {blockchainEvents.length > 0 ? (
+                      blockchainEvents.map((evt) => (
+                        <tr key={evt.recordId || evt.transactionHash}>
+                          <td>
+                            <span className={`badge ${evt.eventType === 'AI_FAULT_DETECTED' ? 'high' : evt.eventType === 'REPAIR_VERIFIED' ? 'normal' : 'purple'}`}>
+                              {evt.eventType}
+                            </span>
+                          </td>
+                          <td><strong>{evt.poleId}</strong></td>
+                          <td>{evt.complaintId}</td>
+                          <td><code>#{evt.blockNumber}</code></td>
+                          <td>{evt.status}</td>
+                          <td>
+                            <span className="hash-link" title={evt.transactionHash}>
+                              {evt.transactionHash?.slice(0, 14)}...{evt.transactionHash?.slice(-6)}
+                            </span>
+                          </td>
+                          <td>{new Date(evt.timestamp).toLocaleTimeString()}</td>
+                          <td>
+                            <button 
+                              className="action-btn primary btn-xs"
+                              disabled={verifyingId === evt.recordId}
+                              onClick={() => handleVerifyRecord(evt.recordId)}
+                            >
+                              {verifyingId === evt.recordId ? 'Checking...' : 'Verify On-Chain'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          No audit events mined yet. Trigger a fault simulation from the Overview tab to anchor the first event!
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

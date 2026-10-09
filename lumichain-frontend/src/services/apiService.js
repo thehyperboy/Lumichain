@@ -94,6 +94,16 @@ export const getBlockchainRecord = async (recordId) => {
   return response.data;
 };
 
+export const getBlockchainEvents = async (limit = 50) => {
+  const response = await apiClient.get('/blockchain/events', { params: { limit } });
+  return response.data;
+};
+
+export const verifyBlockchainRecord = async (recordId) => {
+  const response = await apiClient.post('/blockchain/verify', { recordId });
+  return response.data;
+};
+
 export const apiService = {
   getSystemHealth,
   getStreetlights,
@@ -108,6 +118,8 @@ export const apiService = {
   getBlockchainStatus,
   recordBlockchainEvent,
   getBlockchainRecord,
+  getBlockchainEvents,
+  verifyBlockchainRecord,
   get: (url, params) => apiClient.get(url, { params }),
   post: (url, data) => apiClient.post(url, data),
   patch: (url, data) => apiClient.patch(url, data),

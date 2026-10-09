@@ -1,7 +1,9 @@
+const crypto = require("crypto");
 const { supabase } = require("../config/supabase");
 const { predictStreetlightFailure } = require("./aiService");
 const { updateStreetlightHealth, getStreetlightByPoleId, upsertStreetlight } = require("./streetlightService");
 const { createTicket } = require("./ticketService");
+const { recordMaintenanceEvent } = require("./blockchainService");
 
 /**
  * Ingests streetlight telemetry, runs AI diagnosis, records logs in Supabase,
@@ -73,6 +75,8 @@ const ingestTelemetry = async (telemetryInput) => {
 
     // 5. Automatic Maintenance Ticket Generation if recommended
     let ticket = null;
+    let blockchainAudit = null;
+
     if (aiDecision.recommendation === "CREATE_MAINTENANCE_COMPLAINT") {
         // Check if an OPEN or IN_PROGRESS ticket already exists for this pole
         const { data: existingTickets } = await supabase
@@ -101,6 +105,32 @@ const ingestTelemetry = async (telemetryInput) => {
         } else {
             ticket = existingTickets[0]; // Active ticket already exists
         }
+
+        // 6. Cryptographically anchor fault event on the blockchain smart contract
+        if (ticket) {
+            try {
+                const telemetryPayloadString = JSON.stringify({
+                    poleId,
+                    current: telemetryRecord.current,
+                    voltage: telemetryRecord.voltage,
+                    failureType: aiDecision.failureType,
+                    ticketNumber: ticket.ticket_number || ticket.id,
+                    timestamp: savedLog.created_at,
+                });
+                const dataHash = "0x" + crypto.createHash("sha256").update(telemetryPayloadString).digest("hex");
+
+                blockchainAudit = await recordMaintenanceEvent({
+                    complaintId: ticket.ticket_number || ticket.id,
+                    poleId,
+                    eventType: "AI_FAULT_DETECTED",
+                    dataHash,
+                    status: aiDecision.priority || "HIGH",
+                });
+                console.log(`[Blockchain] Auto-anchored AI fault for ${poleId} (Tx: ${blockchainAudit.transactionHash}, Record: ${blockchainAudit.recordId})`);
+            } catch (bcError) {
+                console.warn(`[Blockchain] Auto-anchor skipped or failed: ${bcError.message}`);
+            }
+        }
     }
 
     return {
@@ -108,6 +138,7 @@ const ingestTelemetry = async (telemetryInput) => {
         telemetry: savedLog,
         aiDecision,
         ticket,
+        blockchainAudit,
     };
 };
 

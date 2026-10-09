@@ -12,6 +12,8 @@
     "backend": "npm --prefix backend run dev",
     "backend:start": "node backend/src/server.js",
     "ai:start": "python -m uvicorn api.main:app --app-dir ai-service --host 127.0.0.1 --port 8000",
+    "blockchain:node": "npx --prefix blockchainlayer hardhat node",
+    "blockchain:deploy": "node blockchainlayer/scripts/deploy-local.cjs",
     "build": "npm --prefix lumichain-frontend run build",
     "lint": "npm --prefix lumichain-frontend run lint",
     "preview": "npm --prefix lumichain-frontend run preview"

@@ -3,7 +3,8 @@ const router = express.Router();
 const {
     checkBlockchainConnection,
     recordMaintenanceEvent,
-    getMaintenanceRecord
+    getMaintenanceRecord,
+    getAuditEvents
 } = require("../services/blockchainService");
 
 // Check blockchain RPC and contract status
@@ -66,6 +67,49 @@ router.get("/record/:recordId", async (req, res) => {
     } catch (error) {
         res.status(500).json({
             success: false,
+            error: error.message
+        });
+    }
+});
+
+// List all smart contract audit events
+router.get("/events", async (req, res) => {
+    try {
+        const limit = Number(req.query.limit) || 50;
+        const events = await getAuditEvents(limit);
+        res.status(200).json({
+            success: true,
+            count: events.length,
+            data: events
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Cryptographically verify a record on-chain
+router.post("/verify", async (req, res) => {
+    try {
+        const { recordId } = req.body;
+        if (!recordId) {
+            return res.status(400).json({
+                success: false,
+                error: "Missing required field: recordId"
+            });
+        }
+        const record = await getMaintenanceRecord(recordId);
+        res.status(200).json({
+            success: true,
+            verified: true,
+            data: record
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            verified: false,
             error: error.message
         });
     }

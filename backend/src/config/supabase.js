@@ -1,4 +1,9 @@
 const dns = require("node:dns");
+try {
+    dns.setServers(["8.8.8.8", "1.1.1.1"]);
+} catch (e) {
+    // ignore if not supported
+}
 if (dns.setDefaultResultOrder) {
     dns.setDefaultResultOrder("ipv4first");
 }

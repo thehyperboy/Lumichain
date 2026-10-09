@@ -1,11 +1,19 @@
 const dns = require("node:dns");
+try {
+    dns.setServers(["8.8.8.8", "1.1.1.1"]);
+} catch (e) {
+    // ignore if not supported
+}
 if (dns.setDefaultResultOrder) {
     dns.setDefaultResultOrder("ipv4first");
 }
 
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
 
 const { checkSupabaseConnection } = require("./config/supabase");
 const { checkAiServiceHealth } = require("./services/aiService");
